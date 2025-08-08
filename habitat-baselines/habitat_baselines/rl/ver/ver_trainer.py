@@ -447,11 +447,14 @@ class VERTrainer(PPOTrainer):
                 resume_state["config"]
             )
 
+
             requeue_stats = resume_state["requeue_stats"]
             self.num_steps_done = requeue_stats["num_steps_done"]
             self.num_updates_done = requeue_stats["num_updates_done"]
 
         self._init_train(resume_state)
+        
+        self._agent.load_state_dict(resume_state)
 
         count_checkpoints = 0
 

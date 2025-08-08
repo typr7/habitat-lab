@@ -14,6 +14,8 @@ import numpy as np
 import quaternion
 from gym import spaces
 
+import math
+
 from habitat.config import read_write
 from habitat.config.default import get_agent_config
 from habitat.core.dataset import Dataset, Episode
@@ -995,7 +997,11 @@ class DistanceToGoal(Measure):
                 current_position[1],
                 current_position[2],
             )
-            self._metric = distance_to_target
+
+            if not (math.isinf(distance_to_target) or math.isnan(distance_to_target)):
+                self._metric = distance_to_target
+            else:
+                self._metric = 100.0
 
 
 @registry.register_measure
