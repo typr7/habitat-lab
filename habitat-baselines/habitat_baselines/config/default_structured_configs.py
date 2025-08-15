@@ -52,6 +52,8 @@ class EvalConfig(HabitatBaselinesBaseConfig):
         default_factory=dict
     )
 
+    collect_nav_data: bool = False
+
 
 @dataclass
 class PreemptionConfig(HabitatBaselinesBaseConfig):

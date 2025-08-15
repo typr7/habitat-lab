@@ -1,10 +1,14 @@
 import os
 from collections import defaultdict
 from typing import Any, Dict, List
+from PIL import Image
+from pathlib import Path
 
 import numpy as np
 import torch
 import tqdm
+import json
+import copy
 
 from habitat import logger
 from habitat.tasks.rearrange.rearrange_sensors import GfxReplayMeasure
@@ -12,6 +16,7 @@ from habitat.tasks.rearrange.utils import write_gfx_replay
 from habitat.utils.visualizations.utils import (
     observations_to_image,
     overlay_frame,
+    maps
 )
 from habitat_baselines.common.obs_transformers import (
     apply_obs_transforms_batch,
@@ -26,6 +31,44 @@ from habitat_baselines.utils.common import (
 )
 from habitat_baselines.utils.info_dict import extract_scalars_from_info
 
+
+def create_nav_id(scene_id: str, episode_id: str) -> str:
+    scene_id: str = scene_id.split('/')[-1]
+    return f'scene_id={scene_id}.episode_id={episode_id}'
+
+def create_nav_data_json(nav_data: dict, config) -> dict:
+    action_mapping = list(config.habitat.task.actions.keys())
+
+    action_sequence = nav_data['action_sequence']
+    action_sequence = [action_mapping[action] for action in action_sequence]
+
+    failure_cause = None
+    if nav_data['success'] != 1.0:
+        if nav_data['action_sequence'][-1] == 0:
+            failure_cause = 'stop too far'
+        else:
+            failure_cause = 'timeout'
+
+    return {
+        'metric': {
+            'success': nav_data['success'],
+            'spl': nav_data['spl'],
+            'soft_spl': nav_data['soft_spl'],
+            'distance_to_goal': nav_data['distance_to_goal']
+        },
+        'navigation': {
+            'failure_cause': failure_cause,
+            'goal_category': nav_data['goal_category'],
+            'action_sequence': action_sequence
+        },
+        'visualization': {
+            'first_frame': nav_data['first_frame'],
+            'final_frame': nav_data['final_frame'],
+            'top_down_map': nav_data['top_down_map'],
+            'video_name': nav_data.get('video_name', None),
+            'top_down_video_name': nav_data.get('top_down_video_name', None)
+        }
+    }
 
 class HabitatEvaluator(Evaluator):
     """
@@ -45,6 +88,39 @@ class HabitatEvaluator(Evaluator):
         env_spec,
         rank0_keys,
     ):
+        if config.habitat_baselines.eval.collect_nav_data:
+            # image
+            image_dir_path = Path('nav_data/image')
+            image_dir_path = str(image_dir_path.resolve())
+            pre_frame = [None for _ in range(envs.num_envs)]
+
+            # trajectory
+            action_seq = [list() for _ in range(envs.num_envs)]
+            top_down_video_dir_path = Path('nav_data/top_down_video')
+            top_down_video_dir_path = str(top_down_video_dir_path.resolve())
+
+            # nav data json
+            json_dir_path = Path('nav_data/json')
+            json_dir_path = str(json_dir_path.resolve())
+            nav_data = defaultdict(lambda: dict())
+
+            # top down map
+            top_down_map_dir_path = Path('nav_data/top_down_map')
+            top_down_map_dir_path = str(top_down_map_dir_path.resolve())
+
+            os.makedirs(image_dir_path, exist_ok=True)
+            os.makedirs(json_dir_path, exist_ok=True)
+            os.makedirs(top_down_video_dir_path, exist_ok=True)
+            os.makedirs(top_down_map_dir_path, exist_ok=True)
+        else:
+            image_dir_path = None
+            pre_frame = None
+            action_seq = None
+            top_down_video_dir_path = None
+            json_dir_path = None
+            nav_data = None
+            top_down_map_dir_path = None
+
         observations = envs.reset()
         observations = envs.post_step(observations)
         batch = batch_obs(observations, device=device)
@@ -94,8 +170,38 @@ class HabitatEvaluator(Evaluator):
                 ]
                 for env_idx in range(config.habitat_baselines.num_environments)
             ]
+
+            if config.habitat_baselines.eval.collect_nav_data:
+                top_down_maps = [[] for _ in range(envs.num_envs)]
+            else:
+                top_down_maps = None
         else:
             rgb_frames = None
+            top_down_maps = None
+        
+        # save the first frame
+        if config.habitat_baselines.eval.collect_nav_data:
+            current_episodes_info = envs.current_episodes()
+            for env_idx in range(config.habitat_baselines.num_environments):
+                image_name = 'first.' + create_nav_id(
+                    current_episodes_info[env_idx].scene_id,
+                    current_episodes_info[env_idx].episode_id
+                ) + '.jpg'
+                image_path = os.path.join(image_dir_path, image_name)
+                if len(config.habitat_baselines.eval.video_option) > 0:
+                    first_frame = rgb_frames[env_idx][0]
+                else:
+                    first_frame = observations_to_image(
+                        {k: v[env_idx] for k, v in batch.items()}, {}
+                    )
+                pre_frame[env_idx] = first_frame
+                img = Image.fromarray(first_frame)
+                img.save(image_path)
+                img.close()
+                nav_data[
+                    (current_episodes_info[env_idx].scene_id,
+                     current_episodes_info[env_idx].episode_id)
+                ]['first_frame'] = image_path
 
         if len(config.habitat_baselines.eval.video_option) > 0:
             os.makedirs(config.habitat_baselines.video_dir, exist_ok=True)
@@ -127,6 +233,7 @@ class HabitatEvaluator(Evaluator):
             and envs.num_envs > 0
         ):
             current_episodes_info = envs.current_episodes()
+            current_episodes_goal_category = envs.current_episodes_goal_category()
 
             space_lengths = {}
             n_agents = len(config.habitat.simulator.agents)
@@ -153,6 +260,10 @@ class HabitatEvaluator(Evaluator):
                     agent.actor_critic.update_hidden_state(
                         test_recurrent_hidden_states, prev_actions, action_data
                     )
+            
+            if config.habitat_baselines.eval.collect_nav_data:
+                for i, action in enumerate(action_data.actions):
+                    action_seq[i].append(action[0].item())
 
             # NB: Move actions to CPU.  If CUDA tensors are
             # sent in to env.step(), that will create CUDA contexts
@@ -218,7 +329,7 @@ class HabitatEvaluator(Evaluator):
 
                 # Exclude the keys from `_rank0_keys` from displaying in the video
                 disp_info = {
-                    k: v for k, v in infos[i].items() if k not in rank0_keys
+                    k: v for k, v in infos[i].items() if (k not in rank0_keys) and (k != 'top_down_map')
                 }
 
                 if len(config.habitat_baselines.eval.video_option) > 0:
@@ -240,6 +351,10 @@ class HabitatEvaluator(Evaluator):
                     else:
                         frame = overlay_frame(frame, disp_info)
                         rgb_frames[i].append(frame)
+                    
+                    if config.habitat_baselines.eval.collect_nav_data:
+                        top_down_map = maps.colorize_draw_agent_and_fit_to_height(infos[i]['top_down_map'], 512)
+                        top_down_maps[i].append(top_down_map)
 
                 # episode ended
                 if not not_done_masks[i].any().item():
@@ -257,22 +372,109 @@ class HabitatEvaluator(Evaluator):
                     # use scene_id + episode_id as unique id for storing stats
                     stats_episodes[(k, ep_eval_count[k])] = episode_stats
 
+                    # save the final frame and the first frame of next episode
+                    if config.habitat_baselines.eval.collect_nav_data:
+                        # store episode metrics
+                        nav_data[k]['success'] = disp_info['success']
+                        nav_data[k]['spl'] = disp_info['spl']
+                        nav_data[k]['soft_spl'] = disp_info['soft_spl']
+                        nav_data[k]['distance_to_goal'] = disp_info['distance_to_goal']
+
+                        # store goal category
+                        nav_data[k]['goal_category'] = current_episodes_goal_category[i]
+
+                        # store agent action sequence
+                        nav_data[k]['action_sequence'] = copy.deepcopy(action_seq[i])
+                        action_seq[i].clear()
+
+                        # save final frame of this episode
+                        image_name = 'final.' + create_nav_id(k[0], k[1]) + '.jpg'
+                        image_path = os.path.join(image_dir_path, image_name)
+                        final_frame = pre_frame[i]
+                        final_frame = overlay_frame(final_frame, disp_info)
+                        img = Image.fromarray(final_frame)
+                        img.save(image_path)
+                        img.close()
+                        nav_data[k]['final_frame'] = image_path
+
+                        # save the first frame of next episode
+                        image_name = 'first.' + create_nav_id(
+                            next_episodes_info[i].scene_id,
+                            next_episodes_info[i].episode_id
+                        ) + '.jpg'
+                        image_path = os.path.join(image_dir_path, image_name)
+                        if len(config.habitat_baselines.eval.video_option) > 0:
+                            first_frame = rgb_frames[i][-1]
+                        else:
+                            first_frame = observations_to_image(
+                                {k: v[i] for k, v in batch.items()}, {}
+                            )
+                        img = Image.fromarray(first_frame)
+                        img.save(image_path)
+                        img.close()
+                        nav_data[
+                            (next_episodes_info[i].scene_id,
+                             next_episodes_info[i].episode_id)
+                        ]['first_frame'] = image_path
+
+                        # save top down map
+                        image_name = create_nav_id(k[0], k[1]) + '.jpg'
+                        image_path = os.path.join(top_down_map_dir_path, image_name)
+                        tpm = maps.colorize_draw_agent_and_fit_to_height(infos[i]['top_down_map'], 1024)
+                        img = Image.fromarray(tpm)
+                        img.save(image_path)
+                        img.close()
+                        nav_data[k]['top_down_map'] = image_path
+
                     if len(config.habitat_baselines.eval.video_option) > 0:
-                        generate_video(
-                            video_option=config.habitat_baselines.eval.video_option,
-                            video_dir=config.habitat_baselines.video_dir,
-                            # Since the final frame is the start frame of the next episode.
-                            images=rgb_frames[i][:-1],
-                            episode_id=f"{current_episodes_info[i].episode_id}_{ep_eval_count[k]}",
-                            checkpoint_idx=checkpoint_index,
-                            metrics=extract_scalars_from_info(disp_info),
-                            fps=config.habitat_baselines.video_fps,
-                            tb_writer=writer,
-                            keys_to_include_in_name=config.habitat_baselines.eval_keys_to_include_in_name,
-                        )
+                        success = disp_info['success']
+                        if success != 1.0:
+                            video_name = generate_video(
+                                video_option=config.habitat_baselines.eval.video_option,
+                                video_dir=config.habitat_baselines.video_dir,
+                                # Since the final frame is the start frame of the next episode.
+                                images=rgb_frames[i][:-1],
+                                episode_id=f"{current_episodes_info[i].episode_id}_{ep_eval_count[k]}",
+                                checkpoint_idx=checkpoint_index,
+                                metrics=extract_scalars_from_info(disp_info),
+                                fps=config.habitat_baselines.video_fps,
+                                tb_writer=writer,
+                                keys_to_include_in_name=config.habitat_baselines.eval_keys_to_include_in_name,
+                            )
+
+                            if config.habitat_baselines.eval.collect_nav_data:
+                                nav_data[k]['video_name'] = video_name
 
                         # Since the starting frame of the next episode is the final frame.
                         rgb_frames[i] = rgb_frames[i][-1:]
+
+                        if config.habitat_baselines.eval.collect_nav_data:
+                            if success != 1.0:
+                                video_name = generate_video(
+                                    video_option=config.habitat_baselines.eval.video_option,
+                                    video_dir=top_down_video_dir_path,
+                                    # Since the final frame is the start frame of the next episode.
+                                    images=top_down_maps[i],
+                                    episode_id=f"{current_episodes_info[i].episode_id}_{ep_eval_count[k]}",
+                                    checkpoint_idx=checkpoint_index,
+                                    metrics=extract_scalars_from_info(disp_info),
+                                    fps=config.habitat_baselines.video_fps,
+                                    tb_writer=writer,
+                                    keys_to_include_in_name=config.habitat_baselines.eval_keys_to_include_in_name,
+                                )
+
+                                nav_data[k]['top_down_video_name'] = video_name
+
+                            top_down_maps[i].clear()
+                    
+                    if config.habitat_baselines.eval.collect_nav_data:
+                        episode_nav_data = nav_data.pop(k)
+                        episode_nav_data = create_nav_data_json(episode_nav_data, config)
+                        with open(
+                            os.path.join(json_dir_path, create_nav_id(k[0], k[1]) + '.json'),
+                            'w'
+                        ) as fp:
+                            json.dump(episode_nav_data, fp, indent=4)
 
                     gfx_str = infos[i].get(GfxReplayMeasure.cls_uuid, "")
                     if gfx_str != "":
@@ -291,6 +493,9 @@ class HabitatEvaluator(Evaluator):
                 prev_actions,
                 batch,
                 rgb_frames,
+                top_down_maps,
+                pre_frame,
+                action_seq
             ) = pause_envs(
                 envs_to_pause,
                 envs,
@@ -300,7 +505,17 @@ class HabitatEvaluator(Evaluator):
                 prev_actions,
                 batch,
                 rgb_frames,
+                top_down_maps,
+                pre_frame,
+                action_seq
             )
+
+            # store current frame to pre_frame
+            if config.habitat_baselines.eval.collect_nav_data:
+                for i in range(envs.num_envs):
+                    pre_frame[i] = observations_to_image(
+                        {k: v[i] for k, v in batch.items()}, {}
+                    )
 
             # We pause the statefull parameters in the policy.
             # We only do this if there are envs to pause to reduce the overhead.

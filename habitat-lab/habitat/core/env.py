@@ -417,6 +417,9 @@ class RLEnv(gym.Env):
                 episode_id=self._env.current_episode.episode_id,
                 scene_id=self._env.current_episode.scene_id,
             )
+    
+    def current_episode_goal_category(self) -> str:
+        return self._env.current_episode.object_category
 
     @profiling_wrapper.RangeContext("RLEnv.reset")
     def reset(

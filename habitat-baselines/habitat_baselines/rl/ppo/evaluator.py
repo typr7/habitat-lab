@@ -59,6 +59,9 @@ def pause_envs(
     prev_actions: Tensor,
     batch: Dict[str, Tensor],
     rgb_frames: Union[List[List[Any]], List[List[ndarray]]],
+    top_down_maps: List[List[Any]],
+    pre_frame: List[ndarray],
+    action_seq: List[List[Any]]
 ) -> Tuple[
     VectorEnv,
     Tensor,
@@ -67,6 +70,9 @@ def pause_envs(
     Tensor,
     Dict[str, Tensor],
     List[List[Any]],
+    List[List[Any]],
+    List[ndarray],
+    List[List[Any]]
 ]:
     # pausing self.envs with no new episode
     if len(envs_to_pause) > 0:
@@ -88,6 +94,15 @@ def pause_envs(
 
         if rgb_frames is not None:
             rgb_frames = [rgb_frames[i] for i in state_index]
+        
+        if top_down_maps is not None:
+            top_down_maps = [top_down_maps[i] for i in state_index]
+        
+        if pre_frame is not None:
+            pre_frame = [pre_frame[i] for i in state_index]
+        
+        if action_seq is not None:
+            action_seq = [action_seq[i] for i in state_index]
         # actor_critic.do_pause(state_index)
 
     return (
@@ -98,4 +113,7 @@ def pause_envs(
         prev_actions,
         batch,
         rgb_frames,
+        top_down_maps,
+        pre_frame,
+        action_seq
     )
