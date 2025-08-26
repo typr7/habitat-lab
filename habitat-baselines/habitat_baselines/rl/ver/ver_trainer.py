@@ -454,7 +454,8 @@ class VERTrainer(PPOTrainer):
 
         self._init_train(resume_state)
         
-        self._agent.load_state_dict(resume_state)
+        if resume_state is not None:
+            self._agent.load_state_dict(resume_state)
 
         count_checkpoints = 0
 

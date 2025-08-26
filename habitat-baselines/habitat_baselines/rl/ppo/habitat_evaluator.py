@@ -64,7 +64,7 @@ def create_nav_data_json(nav_data: dict, config) -> dict:
         'visualization': {
             'first_frame': nav_data['first_frame'],
             'final_frame': nav_data['final_frame'],
-            'top_down_map': nav_data['top_down_map'],
+            'top_down_map': nav_data.get('top_down_map', None),
             'video_name': nav_data.get('video_name', None),
             'top_down_video_name': nav_data.get('top_down_video_name', None)
         }
