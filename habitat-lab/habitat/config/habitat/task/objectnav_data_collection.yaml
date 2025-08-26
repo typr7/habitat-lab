@@ -14,6 +14,8 @@ defaults:
     - spl
     - soft_spl
     - distance_to_goal_reward
+    - top_down_map
+    - agent_pose
   - lab_sensors:
     - objectgoal_sensor
     - compass_sensor

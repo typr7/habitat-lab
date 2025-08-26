@@ -938,6 +938,46 @@ class TopDownMap(Measure):
 
 
 @registry.register_measure
+class Pose(Measure):
+    """Agent Pose"""
+
+    cls_uuid: str = "agent_pose"
+
+    def __init__(
+        self, sim: Simulator, config: "DictConfig", *args: Any, **kwargs: Any
+    ):
+        self._sim = sim
+        self._config = config
+
+        super().__init__(**kwargs)
+    
+    def _get_uuid(self, *args: Any, **kwargs: Any) -> str:
+        return self.cls_uuid
+
+    def reset_metric(self, episode, *args: Any, **kwargs: Any):
+        self.update_metric(episode=episode, *args, **kwargs)
+    
+    def update_metric(
+        self, episode: NavigationEpisode, *args: Any, **kwargs: Any
+    ):
+        current_position = self._sim.get_agent_state().position
+        current_rotation = self._sim.get_agent_state().rotation
+        self._metric = (
+            [
+                float(current_position[0]),
+                float(current_position[1]),
+                float(current_position[2])
+            ],
+            [
+                float(current_rotation.x),
+                float(current_rotation.y),
+                float(current_rotation.z),
+                float(current_rotation.w)
+            ],
+
+        )
+
+@registry.register_measure
 class DistanceToGoal(Measure):
     """The measure calculates a distance towards the goal."""
 

@@ -1344,6 +1344,11 @@ class EpisodeInfoMeasurementConfig(MeasurementConfig):
 
 
 @dataclass
+class PoseMeasurementConfig(MeasurementConfig):
+    type: str = "Pose"
+
+
+@dataclass
 class DistanceToGoalMeasurementConfig(MeasurementConfig):
     r"""
     In Navigation tasks only, measures the geodesic distance to the goal.
@@ -2348,6 +2353,12 @@ cs.store(
     group="habitat/task/measurements",
     name="top_down_map",
     node=TopDownMapMeasurementConfig,
+)
+cs.store(
+    package="habitat.task.measurements.agent_pose",
+    group="habitat/task/measurements",
+    name="agent_pose",
+    node=PoseMeasurementConfig,
 )
 cs.store(
     package="habitat.task.measurements.distance_to_goal",

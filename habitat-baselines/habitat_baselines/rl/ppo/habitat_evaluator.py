@@ -59,7 +59,8 @@ def create_nav_data_json(nav_data: dict, config) -> dict:
         'navigation': {
             'failure_cause': failure_cause,
             'goal_category': nav_data['goal_category'],
-            'action_sequence': action_sequence
+            'action_sequence': action_sequence,
+            'trajectory': nav_data['trajectory']
         },
         'visualization': {
             'first_frame': nav_data['first_frame'],
@@ -96,6 +97,7 @@ class HabitatEvaluator(Evaluator):
 
             # trajectory
             action_seq = [list() for _ in range(envs.num_envs)]
+            pose_seq = [list() for _ in range(envs.num_envs)]
             top_down_video_dir_path = Path('nav_data/top_down_video')
             top_down_video_dir_path = str(top_down_video_dir_path.resolve())
 
@@ -108,6 +110,8 @@ class HabitatEvaluator(Evaluator):
             top_down_map_dir_path = Path('nav_data/top_down_map')
             top_down_map_dir_path = str(top_down_map_dir_path.resolve())
 
+            dc_metric_list = ['agent_pose']
+
             os.makedirs(image_dir_path, exist_ok=True)
             os.makedirs(json_dir_path, exist_ok=True)
             os.makedirs(top_down_video_dir_path, exist_ok=True)
@@ -116,10 +120,12 @@ class HabitatEvaluator(Evaluator):
             image_dir_path = None
             pre_frame = None
             action_seq = None
+            pose_seq = None
             top_down_video_dir_path = None
             json_dir_path = None
             nav_data = None
             top_down_map_dir_path = None
+            dc_metric_list = []
 
         observations = envs.reset()
         observations = envs.post_step(observations)
@@ -286,6 +292,14 @@ class HabitatEvaluator(Evaluator):
             observations, rewards_l, dones, infos = [
                 list(x) for x in zip(*outputs)
             ]
+
+            for i in range(envs.num_envs):
+                info = infos[i]
+                pose_seq[i].append(info['agent_pose'] + (info['distance_to_goal'],))
+
+                for key in dc_metric_list:
+                    info.pop(key, None)
+
             # Note that `policy_infos` represents the information about the
             # action BEFORE `observations` (the action used to transition to
             # `observations`).
@@ -329,7 +343,7 @@ class HabitatEvaluator(Evaluator):
 
                 # Exclude the keys from `_rank0_keys` from displaying in the video
                 disp_info = {
-                    k: v for k, v in infos[i].items() if (k not in rank0_keys) and (k != 'top_down_map')
+                    k: v for k, v in infos[i].items() if (k not in rank0_keys) and (k not in dc_metric_list) and (k != 'top_down_map')
                 }
 
                 if len(config.habitat_baselines.eval.video_option) > 0:
@@ -386,6 +400,10 @@ class HabitatEvaluator(Evaluator):
                         # store agent action sequence
                         nav_data[k]['action_sequence'] = copy.deepcopy(action_seq[i])
                         action_seq[i].clear()
+
+                        # store agent trajectory
+                        nav_data[k]['trajectory'] = copy.deepcopy(pose_seq[i])
+                        pose_seq[i].clear()
 
                         # save final frame of this episode
                         image_name = 'final.' + create_nav_id(k[0], k[1]) + '.jpg'
@@ -495,7 +513,8 @@ class HabitatEvaluator(Evaluator):
                 rgb_frames,
                 top_down_maps,
                 pre_frame,
-                action_seq
+                action_seq,
+                pose_seq
             ) = pause_envs(
                 envs_to_pause,
                 envs,
@@ -507,7 +526,8 @@ class HabitatEvaluator(Evaluator):
                 rgb_frames,
                 top_down_maps,
                 pre_frame,
-                action_seq
+                action_seq,
+                pose_seq
             )
 
             # store current frame to pre_frame
