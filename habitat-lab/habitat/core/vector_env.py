@@ -75,6 +75,7 @@ ORIG_ACTION_SPACE_NAME = "original_action_space"
 OBSERVATION_SPACE_NAME = "observation_space"
 
 CURRENT_EPISODE_GOAL_CATEGORY_NAME = "current_episode_goal_category"
+CURRENT_EPISODE_INITIAL_POSE = "current_episode_initial_pose"
 
 
 def _make_env_fn(
@@ -363,6 +364,13 @@ class VectorEnv:
             results.append(read_fn())
         return results
     
+    def current_episodes_initial_pose(self):
+        for write_fn in self._connection_write_fns:
+            write_fn((CALL_COMMAND, (CURRENT_EPISODE_INITIAL_POSE, None)))
+        results = []
+        for read_fn in self._connection_read_fns:
+            results.append(read_fn())
+        return results
 
     def count_episodes(self):
         for write_fn in self._connection_write_fns:

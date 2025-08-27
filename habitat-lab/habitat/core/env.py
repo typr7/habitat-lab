@@ -420,6 +420,12 @@ class RLEnv(gym.Env):
     
     def current_episode_goal_category(self) -> str:
         return self._env.current_episode.object_category
+    
+    def current_episode_initial_pose(self) -> Tuple[Tuple, Tuple]:
+        return (
+            self._env.current_episode.start_position,
+            self._env.current_episode.start_rotation
+        )
 
     @profiling_wrapper.RangeContext("RLEnv.reset")
     def reset(
