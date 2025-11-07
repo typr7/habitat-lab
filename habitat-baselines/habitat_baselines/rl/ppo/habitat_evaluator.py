@@ -37,10 +37,6 @@ def create_nav_id(scene_id: str, episode_id: str) -> str:
     return f'scene_id={scene_id}.episode_id={episode_id}'
 
 def create_nav_data_json(nav_data: dict, config) -> dict:
-    action_mapping = list(config.habitat.task.actions.keys())
-
-    action_sequence = nav_data['action_sequence']
-    action_sequence = [action_mapping[action] for action in action_sequence]
 
     failure_cause = None
     if nav_data['success'] != 1.0:
@@ -59,7 +55,7 @@ def create_nav_data_json(nav_data: dict, config) -> dict:
         'navigation': {
             'failure_cause': failure_cause,
             'goal_category': nav_data['goal_category'],
-            'action_sequence': action_sequence,
+            'action_sequence': nav_data['action_sequence'],
             'trajectory': nav_data['trajectory']
         },
         'visualization': {
