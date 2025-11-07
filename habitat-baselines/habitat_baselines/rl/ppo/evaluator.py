@@ -60,7 +60,6 @@ def pause_envs(
     batch: Dict[str, Tensor],
     rgb_frames: Union[List[List[Any]], List[List[ndarray]]],
     top_down_maps: List[List[Any]],
-    pre_frame: List[ndarray],
     action_seq: List[List[Any]],
     pose_seq: Tuple[List, List]
 ) -> Tuple[
@@ -72,7 +71,6 @@ def pause_envs(
     Dict[str, Tensor],
     List[List[Any]],
     List[List[Any]],
-    List[ndarray],
     List[List[Any]],
     Tuple[List, List]
 ]:
@@ -100,9 +98,6 @@ def pause_envs(
         if top_down_maps is not None:
             top_down_maps = [top_down_maps[i] for i in state_index]
         
-        if pre_frame is not None:
-            pre_frame = [pre_frame[i] for i in state_index]
-        
         if action_seq is not None:
             action_seq = [action_seq[i] for i in state_index]
 
@@ -120,7 +115,6 @@ def pause_envs(
         batch,
         rgb_frames,
         top_down_maps,
-        pre_frame,
         action_seq,
         pose_seq
     )
