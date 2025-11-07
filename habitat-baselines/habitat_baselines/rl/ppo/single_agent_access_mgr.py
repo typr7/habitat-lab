@@ -205,14 +205,20 @@ class SingleAgentAccessMgr(AgentAccessMgr):
             pretrained_state = torch.load(
                 self._config.habitat_baselines.rl.ddppo.pretrained_weights,
                 map_location="cpu",
+                weights_only=False
             )
 
         if self._config.habitat_baselines.rl.ddppo.pretrained:
+            """
             actor_critic.load_state_dict(
                 {  # type: ignore
                     k[len("actor_critic.") :]: v
                     for k, v in pretrained_state["state_dict"].items()
                 }
+            )
+            """
+            actor_critic.load_state_dict(
+                pretrained_state["state_dict"]
             )
         elif self._config.habitat_baselines.rl.ddppo.pretrained_encoder:
             prefix = "actor_critic.net.visual_encoder."
