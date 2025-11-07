@@ -293,12 +293,13 @@ class HabitatEvaluator(Evaluator):
                 list(x) for x in zip(*outputs)
             ]
 
-            for i in range(envs.num_envs):
-                info = infos[i]
-                pose_seq[i].append(info['agent_pose'] + (info['distance_to_goal'],))
+            if config.habitat_baselines.eval.collect_nav_data:
+                for i in range(envs.num_envs):
+                    info = infos[i]
+                    pose_seq[i].append(info['agent_pose'] + (info['distance_to_goal'],))
 
-                for key in dc_metric_list:
-                    info.pop(key, None)
+                    for key in dc_metric_list:
+                        info.pop(key, None)
 
             # Note that `policy_infos` represents the information about the
             # action BEFORE `observations` (the action used to transition to
